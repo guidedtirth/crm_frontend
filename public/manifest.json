@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "Job Manager Extension",
+  "version": "1.0",
+  "description": "Job Manager Extension",
+  "permissions": ["scripting", "sidePanel"],
+  "side_panel": {
+    "default_path": "../index.html"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}
