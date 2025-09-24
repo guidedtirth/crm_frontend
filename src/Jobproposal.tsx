@@ -1,7 +1,7 @@
 // JobProposal.tsx
 import { useState, useEffect } from 'react';
 import Tooltip from '@mui/material/Tooltip';
-import App_query from '../App_query';
+import AppQuery from '../AppQuery';
 
 interface ProposalHistoryItem {
   id: string;
@@ -51,7 +51,7 @@ const JobProposal = ({ jobData, onClose, profileId, proposalHistory }: JobPropos
     }
   };
 
-  // Extract job data for App_query
+  // Extract job data for AppQuery
   const getJobData = () => {
     if (!selectedVersion) return null;
 
@@ -104,27 +104,6 @@ const JobProposal = ({ jobData, onClose, profileId, proposalHistory }: JobPropos
         </button>
       </div>
 
-      {/* Version selector */}
-      {/* <div className="version-selector">
-        <label>Proposal Version:</label>
-        <select
-          value={selectedVersion?.id || ''}
-          onChange={(e) => {
-            const version = proposalHistory.find((v) => v.id === e.target.value);
-            if (version) setSelectedVersion(version);
-          }}
-        >
-          {proposalHistory
-            .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-            .map((version, index) => (
-              <option key={version.id} value={version.id}>
-                Version {index + 1} - {new Date(version.created_at).toLocaleString()}
-                {version.feedback ? ` (Feedback: ${version.feedback})` : ''}
-              </option>
-            ))}
-        </select>
-      </div> */}
-
       {/* Current proposal display */}
       <div className="job-description">
         <h4>Selected Proposal:</h4>
@@ -135,7 +114,7 @@ const JobProposal = ({ jobData, onClose, profileId, proposalHistory }: JobPropos
       {selectedVersion && (
         <div className="proposal-refinement">
           <h4>Refine This Proposal:</h4>
-          <App_query
+          <AppQuery
             key={selectedVersion?.thread_id || jobData.thread_id}
             profileId={profileId}
             initialProposals={proposalHistory}

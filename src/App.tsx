@@ -1,11 +1,16 @@
+/**
+ * App.tsx
+ * Root UI: auth, profile selection, filters modal, proposals table, and JobProposal view.
+ * Platform-specific UI (e.g., Upwork filters) is imported from src/platforms.
+ */
 import { useState, useEffect, useMemo } from 'react';
 import './App.css';
-import JobProposal from './Jobproposal.tsx';
+import JobProposal from './JobProposal.tsx';
 import Tooltip from '@mui/material/Tooltip';
 import { groupProposalsByThread } from '../utils/groupProposals.ts';
 import UserManagement from './users/UserManagement.tsx';
-import FiltersModal from './components/FiltersModal.tsx';
-// import App_query from '../App_query.tsx';
+import FiltersModal from './platforms/upwork/UpworkFiltersModal.tsx';
+// import AppQuery from '../AppQuery.tsx';
 
 interface JobProfile {
   id: string;
@@ -176,94 +181,71 @@ function App() {
   }, [token, baseUrl, authHeaders]);
 
   // Handle profile selection
-const handleProfileChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
-  handleCloseProposal()
-  const profileId = e.target.value;
-  setSelectedProfileId(profileId);
+  const handleProfileChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    handleCloseProposal();
+    const profileId = e.target.value;
+    setSelectedProfileId(profileId);
 
-  if (!profileId) {
-    setFilteredProfiles([]);
-    setGroupedProposals({});
-    return;
-  }
+    if (!profileId) {
+      setFilteredProfiles([]);
+      setGroupedProposals({});
+      return;
+    }
 
-  setProfileLoading(true);
-  try {
-    const response = await fetch(`${baseUrl}proposal/${profileId}`, { headers: authHeaders.bearer() });
-    const result = await response.json();
-    console.log('Fetched job profiles:', result);
+    setProfileLoading(true);
+    try {
+      const response = await fetch(`${baseUrl}proposal/${profileId}`, { headers: authHeaders.bearer() });
+      const result = await response.json();
+      console.log('Fetched job profiles:', result);
 
-    const jobProfiles = result?.data?.map((profile: any) => {
-      const parsedQuery = (() => {
-        if (typeof profile?.query_text === 'string') {
-          try {
-            return JSON.parse(profile.query_text);
-          } catch {
-            let string =JSON.stringify(profile.query_text);
-            // return  profile.query_text // fallback
-            return JSON.parse(string);
-
+      const jobProfiles = result?.data?.map((profile: any) => {
+        const parsedQuery = (() => {
+          if (typeof profile?.query_text === 'string') {
+            try {
+              return JSON.parse(profile.query_text);
+            } catch {
+              let string = JSON.stringify(profile.query_text);
+              return JSON.parse(string);
+            }
           }
-        }
-        return profile.query_text;
-      })();
+          return profile.query_text;
+        })();
 
+        return {
+          ...profile,
+          query_text: parsedQuery
+        };
+      }) || [];
+      console.log('Job Profiles:', jobProfiles);
 
-      return {
-        ...profile,
-        query_text: parsedQuery
-      };
-    }) || [];
-    console.log('Job Profiles:', jobProfiles);
-
-    // Add the distinct filtering here
-    const latestProfiles = jobProfiles.reduce((acc: any[], current: any) => {
-      const existing = acc.find(
-        (profile) =>
-          profile.thread_id === current.thread_id &&
-          profile.query_text?.id === current.query_text?.id
-      );
-      if (!existing) {
-        acc.push(current);
-      } else if (new Date(current.created_at) > new Date(existing.created_at)) {
-        // Replace with newer proposal
-        acc = acc.filter(
-          (profile) =>
-            !(
-              profile.thread_id === current.thread_id &&
-              profile.query_text?.id === current.query_text?.id
-            )
+      const latestProfiles = jobProfiles.reduce((acc: any[], current: any) => {
+        const existing = acc.find(
+          (p) =>
+            p.thread_id === current.thread_id &&
+            p.query_text?.id === current.query_text?.id
         );
-        acc.push(current);
-      }
-      return acc;
-    }, []);
+        if (!existing) {
+          acc.push(current);
+        } else if (new Date(current.created_at) > new Date(existing.created_at)) {
+          acc = acc.filter(
+            (p) => !(p.thread_id === current.thread_id && p.query_text?.id === current.query_text?.id)
+          );
+          acc.push(current);
+        }
+        return acc;
+      }, []);
 
-    setFilteredProfiles(latestProfiles);
-    setGroupedProposals(groupProposalsByThread(jobProfiles));
-  } catch (error) {
-    console.error('Error fetching job profiles:', error);
-    setFilteredProfiles([]);
-    setGroupedProposals({});
-  } finally {
-    setProfileLoading(false);
-  }
-}
+      setFilteredProfiles(latestProfiles);
+      setGroupedProposals(groupProposalsByThread(jobProfiles));
+    } catch (error) {
+      console.error('Error fetching job profiles:', error);
+      setFilteredProfiles([]);
+      setGroupedProposals({});
+    } finally {
+      setProfileLoading(false);
+    }
+  };
 
-  // const handleDiscardJob = async (jobId: string) => {
-  //   try {
-  //     const response = await fetch(`${import.meta.env.VITE_API_URL}jobs/${jobId}`, {
-  //       method: 'DELETE',
-  //     });
-  //     if (response.ok) {
-  //       setFilteredProfiles((prev) => prev.filter((job: any) => job.job_id !== jobId));
-  //     }
-  //   } catch (error) {
-  //     console.error('Error discarding job:', error);
-  //   }
-  // };
-
-  // Discard job for this profile only
   const handleDiscardJobForProfile = async (jobId: string, profileId: string) => {
     console.log('Discarding job for profile:', jobId, profileId);
     try {
@@ -279,7 +261,6 @@ const handleProfileChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
     }
   };
 
-  //for proposal
   const handleJobTitleClick = (profile: any) => {
     console.log('Job title clicked:', profile);
     try {
@@ -296,11 +277,9 @@ const handleProfileChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
     }
   };
 
-  // Add this function to close the proposal view
   const handleCloseProposal = () => {
     setSelectedJob(null);
   };
-
 
   if (loading) {
     return (
@@ -671,7 +650,7 @@ const handleProfileChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
       {filtersScope && (
         <FiltersModal scope={filtersScope.scope} profileId={filtersScope.profileId || null} onClose={() => setFiltersScope(null)} />
       )}
-      {/* <App_query /> */}
+      {/* <AppQuery /> */}
     </div>
   );
 }

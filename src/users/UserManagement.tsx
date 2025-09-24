@@ -1,7 +1,11 @@
+/**
+ * UserManagement.tsx
+ * Manage profiles for the authenticated company (list/create/delete, training toggle UI).
+ */
 import { useEffect, useMemo, useState } from 'react';
 import './userManagement.css';
 import ChatModal from '../components/ChatModal';
-import FiltersModal from '../components/FiltersModal';
+import FiltersModal from '../platforms/upwork/UpworkFiltersModal';
 
 interface User {
   id: string;

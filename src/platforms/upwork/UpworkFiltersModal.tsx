@@ -1,3 +1,7 @@
+/**
+ * UpworkFiltersModal.tsx
+ * Upwork-specific filters editor (company/profile scope), persisted via /api/filters.
+ */
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 

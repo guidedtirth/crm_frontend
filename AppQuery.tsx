@@ -1,4 +1,7 @@
-// App_query.tsx
+/**
+ * AppQuery.tsx
+ * Proposal refinement UI. Sends feedback to /api/query and renders proposal history.
+ */
 import { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { toast } from 'react-toastify';
@@ -52,7 +55,7 @@ interface AppQueryProps {
   jobData?: JobData | null;
 }
 
-function App_query({ profileId, initialProposals = [], jobData }: AppQueryProps) {
+function AppQuery({ profileId, initialProposals = [], jobData }: AppQueryProps) {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [feedback, setFeedback] = useState<string>('');
@@ -216,4 +219,4 @@ function App_query({ profileId, initialProposals = [], jobData }: AppQueryProps)
   );
 }
 
-export default App_query;
+export default AppQuery;

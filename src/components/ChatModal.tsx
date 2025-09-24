@@ -1,3 +1,7 @@
+/**
+ * ChatModal.tsx
+ * Profile chat UI backed by Assistants thread; supports message edit and client-side encryption.
+ */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import CircularProgress from '@mui/material/CircularProgress';
