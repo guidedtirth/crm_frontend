@@ -104,7 +104,10 @@ function App() {
     setAuthLoading(true);
     try {
       const url = authMode === 'login' ? `${baseUrl}auth/login` : `${baseUrl}auth/signup`;
-      const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(authForm) });
+      const payload = authMode === 'login' 
+        ? { email: authForm.email, password: authForm.password }
+        : authForm;
+      const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       const data = await resp.json();
       if (!resp.ok) throw new Error(data?.message || 'Auth failed');
       if (!data?.token) throw new Error('Missing token');
@@ -299,10 +302,12 @@ function App() {
               <h3 className="dialog-title">{authMode === 'login' ? 'Login' : 'Sign Up'}</h3>
             </div>
             <form onSubmit={handleAuthSubmit} className="form-spacing">
-              <div className="form-group">
-                <label className="form-label">Company Name</label>
-                <input className="input" value={authForm.companyName} onChange={(e) => setAuthForm({ ...authForm, companyName: e.target.value })} required />
-              </div>
+              {authMode === 'signup' && (
+                <div className="form-group">
+                  <label className="form-label">Company Name</label>
+                  <input className="input" value={authForm.companyName} onChange={(e) => setAuthForm({ ...authForm, companyName: e.target.value })} required />
+                </div>
+              )}
               {authMode === 'signup' && (
                 <div className="form-group">
                   <label className="form-label">Username</label>
