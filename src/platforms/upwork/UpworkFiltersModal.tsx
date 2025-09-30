@@ -8,6 +8,7 @@ import { createPortal } from 'react-dom';
 type Scope = 'company' | 'profile';
 
 type Filters = {
+  active: boolean;
   categoryIds_any: string[];
   workload_part_time: boolean;
   workload_full_time: boolean;
@@ -23,6 +24,7 @@ type Filters = {
 
 function defaultFilters(): Filters {
   return {
+    active: false,
     categoryIds_any: [],
     workload_part_time: false,
     workload_full_time: false,
@@ -39,7 +41,6 @@ function defaultFilters(): Filters {
 
 export default function FiltersModal({ scope, profileId, onClose } : { scope: Scope; profileId?: string | null; onClose: () => void; }) {
   const [filters, setFilters] = useState<Filters>(defaultFilters());
-  const [active, setActive] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
   const token = useMemo(() => localStorage.getItem('auth_token'), []);
   const baseUrl = useMemo(() => {
@@ -57,7 +58,6 @@ export default function FiltersModal({ scope, profileId, onClose } : { scope: Sc
         const qs = scope === 'profile' && profileId ? `scope=profile&profileId=${profileId}` : 'scope=company';
         const resp = await fetch(`${baseUrl}filters?${qs}`, { headers: headersBearer });
         const data = await resp.json();
-        setActive(!!data.active);
         setFilters({
           ...defaultFilters(),
           ...(data || {})
@@ -111,7 +111,6 @@ export default function FiltersModal({ scope, profileId, onClose } : { scope: Sc
 
               const body: any = {
                 scope,
-                active,
                 ...filters,
               };
               if (scope === 'profile' && profileId) body.profileId = profileId;
@@ -131,7 +130,7 @@ export default function FiltersModal({ scope, profileId, onClose } : { scope: Sc
           <div className="grid-container">
             <div className="form-group">
               <label className="form-label">Enable this filter</label>
-              <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
+              <input type="checkbox" checked={filters.active} onChange={(e) => setFilters({ ...filters, active: e.target.checked })} />
             </div>
             <div className="form-group">
               <label className="form-label">Category</label>

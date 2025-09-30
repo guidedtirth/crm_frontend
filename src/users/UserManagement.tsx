@@ -10,6 +10,7 @@ import FiltersModal from '../platforms/upwork/UpworkFiltersModal';
 interface User {
   id: string;
   name: string;
+  trainable_profile?: boolean;
 }
 
 interface TrainingDialogProps {
@@ -135,6 +136,7 @@ export default function UserManagement() {
       const formattedUsers = data.map((user: any) => ({
         id: user.id,
         name: user.name,
+        trainable_profile: !!user.trainable_profile,
       }));
       setUsers(formattedUsers);
     } catch (error) {
@@ -187,10 +189,24 @@ export default function UserManagement() {
       if (!response.ok) {
         throw new Error('Failed to disable training for user');
       }
-      // Optionally refresh user data if needed
-      // await getAllUsers();
+      await getAllUsers();
     } catch (error) {
       console.error('Error disabling training:', error);
+    }
+  };
+
+  const handleEnableTraining = async (userId: string) => {
+    try {
+      const response = await fetch(`${baseUrl}profiles/enable-training/${userId}`, {
+        method: 'PUT',
+        headers: authHeaders.bearer(),
+      });
+      if (!response.ok) {
+        throw new Error('Failed to enable training for user');
+      }
+      await getAllUsers();
+    } catch (error) {
+      console.error('Error enabling training:', error);
     }
   };
 
@@ -423,18 +439,24 @@ export default function UserManagement() {
                             </div>
                           )}
                         </div>
-                        <div className="hidden">
-                          <button
-                              className="button button-outline button-warning"
-                              title="Disable training"
-                              onClick={() => handleDisableTraining(user.id)}
-                            >
-                              <svg className="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                <path d="M10 15l-3.5-3.5 1.41-1.41L10 12.17l5.09-5.09L16.5 8.5z" />
-                                <line x1="2" y1="2" x2="22" y2="22" stroke="red" />
-                              </svg>
-                            </button>
-                        </div>
+                        <button
+                          className="button button-outline button-sm"
+                          title={user.trainable_profile ? 'Training enabled' : 'Training disabled'}
+                          onClick={() => user.trainable_profile ? handleDisableTraining(user.id) : handleEnableTraining(user.id)}
+                          aria-label={user.trainable_profile ? 'Disable training' : 'Enable training'}
+                        >
+                          {user.trainable_profile ? (
+                            <svg className="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M12 2l7 4v6c0 5-3.5 9-7 10-3.5-1-7-5-7-10V6l7-4z" />
+                              <path d="M9 12l2.5 2.5L15 11" />
+                            </svg>
+                          ) : (
+                            <svg className="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <circle cx="12" cy="12" r="9" />
+                              <line x1="8" y1="12" x2="16" y2="12" />
+                            </svg>
+                          )}
+                        </button>
                       </div>
                     </td>
                   </tr>
