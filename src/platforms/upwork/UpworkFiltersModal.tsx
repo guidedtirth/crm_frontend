@@ -58,9 +58,36 @@ export default function FiltersModal({ scope, profileId, onClose } : { scope: Sc
         const qs = scope === 'profile' && profileId ? `scope=profile&profileId=${profileId}` : 'scope=company';
         const resp = await fetch(`${baseUrl}filters?${qs}`, { headers: headersBearer });
         const data = await resp.json();
+        const toStr = (v: any) => (v === null || v === undefined || v === '' ? null : String(v));
+        const hourly = (() => {
+          if (typeof data.hourlyRate === 'string' && data.hourlyRate.trim() !== '') return data.hourlyRate;
+          const lo = toStr(data.hourlyRate_min);
+          const hi = toStr(data.hourlyRate_max);
+          if (lo === null && hi === null) return null;
+          return `${lo ?? ''}-${hi ?? ''}`;
+        })();
+        const budgetArr = (() => {
+          if (Array.isArray(data.budget) && data.budget.length) return data.budget.map((s: any) => String(s));
+          const lo = toStr(data.budget_min);
+          const hi = toStr(data.budget_max);
+          if (lo === null && hi === null) return [] as string[];
+          return [`${lo ?? ''}-${hi ?? ''}`];
+        })();
+        const cat = Array.isArray(data.categoryIds_any) ? data.categoryIds_any.map((s: any) => String(s)) : [];
         setFilters({
           ...defaultFilters(),
-          ...(data || {})
+          categoryIds_any: cat,
+          workload_part_time: !!data.workload_part_time,
+          workload_full_time: !!data.workload_full_time,
+          verifiedPaymentOnly_eq: !!data.verifiedPaymentOnly_eq,
+          clientHires_min: data.clientHires_min ?? null,
+          clientHires_max: data.clientHires_max ?? null,
+          hourlyRate: hourly,
+          budget: budgetArr,
+          proposal_min: data.proposal_min ?? null,
+          proposal_max: data.proposal_max ?? null,
+          experienceLevel_eq: (typeof data.experienceLevel_eq === 'string' && data.experienceLevel_eq.trim() !== '') ? data.experienceLevel_eq : null,
+          active: !!data.active,
         });
       } catch (e) {
         // ignore
@@ -69,6 +96,47 @@ export default function FiltersModal({ scope, profileId, onClose } : { scope: Sc
       }
     })();
   }, [baseUrl, headersBearer, scope, profileId]);
+
+  async function copyFromCompanyDefaults() {
+    try {
+      const resp = await fetch(`${baseUrl}filters?scope=company`, { headers: headersBearer });
+      const data = await resp.json();
+      // Map only user-editable fields; keep current profile's active as-is
+      const toStr = (v: any) => (v === null || v === undefined || v === '' ? null : String(v));
+      const numOrNull = (v: any) => (v === null || v === undefined || v === '' ? null : Number(v));
+
+      const hourlyFromMinMax = (() => {
+        const lo = toStr(data.hourlyRate_min);
+        const hi = toStr(data.hourlyRate_max);
+        if (lo === null && hi === null) return null;
+        return `${lo ?? ''}-${hi ?? ''}`;
+      })();
+      const budgetFromMinMax = (() => {
+        const lo = toStr(data.budget_min);
+        const hi = toStr(data.budget_max);
+        if (lo === null && hi === null) return [] as string[];
+        return [`${lo ?? ''}-${hi ?? ''}`];
+      })();
+
+      setFilters((prev) => ({
+        ...prev,
+        // Do NOT override prev.active to allow per-profile control
+        categoryIds_any: Array.isArray(data.categoryIds_any) ? data.categoryIds_any.map(String) : [],
+        workload_part_time: !!data.workload_part_time,
+        workload_full_time: !!data.workload_full_time,
+        verifiedPaymentOnly_eq: !!data.verifiedPaymentOnly_eq,
+        clientHires_min: numOrNull(data.clientHires_min),
+        clientHires_max: numOrNull(data.clientHires_max),
+        hourlyRate: toStr(data.hourlyRate) ?? hourlyFromMinMax,
+        budget: Array.isArray(data.budget) ? data.budget.map(String) : budgetFromMinMax,
+        proposal_min: numOrNull(data.proposal_min),
+        proposal_max: numOrNull(data.proposal_max),
+        experienceLevel_eq: toStr(data.experienceLevel_eq),
+      }));
+    } catch (e) {
+      alert('Failed to load company defaults');
+    }
+  }
 
   if (loading) {
     return createPortal(
@@ -86,9 +154,20 @@ export default function FiltersModal({ scope, profileId, onClose } : { scope: Sc
   return createPortal(
     <div className="dialog-overlay">
       <div className="dialog-content dialog-large" style={{ display: 'flex', flexDirection: 'column', height: '86vh', width: '100%', maxWidth: 1000 }}>
-        <div className="dialog-header">
+        <div className="dialog-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <h3 className="dialog-title">{scope === 'company' ? 'Default Filters (Company)' : 'User Filters'}</h3>
-          <button className="button button-close" onClick={onClose}>×</button>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {scope === 'profile' && (
+              <button
+                className="button button-outline"
+                title="Make same as company default"
+                onClick={copyFromCompanyDefaults}
+              >
+                Use Company Default
+              </button>
+            )}
+            <button className="button button-close" onClick={onClose}>×</button>
+          </div>
         </div>
         <p className="subtitle" style={{ margin: '6px 0 12px 0' }}>
           Enable/disable and edit the filter. Leave blank ranges to ignore. Comma-separate category IDs.
