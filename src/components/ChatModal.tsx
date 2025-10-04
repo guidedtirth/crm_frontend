@@ -25,6 +25,8 @@ export default function ChatModal({ profileId, onClose }: ChatModalProps) {
   const [sending, setSending] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
+  const [imageDataUrls, setImageDataUrls] = useState<string[]>([]);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const [, setMk] = useState<string | null>(null); // store-only, no reads needed
 
@@ -98,7 +100,8 @@ export default function ChatModal({ profileId, onClose }: ChatModalProps) {
     if (!items || !items.length) return;
     const payload: any[] = [];
     for (const it of items) {
-      const enc = await encryptWithProfile(it.content);
+      const raw = typeof (it as any).content === 'string' ? (it as any).content : JSON.stringify((it as any).content);
+      const enc = await encryptWithProfile(raw);
       payload.push({ id: it.id, profile_id: profileId, thread_id: thread, role: it.role, content_enc: enc.content_enc, content_nonce: enc.content_nonce, content_salt: enc.content_salt, created_at: it.created_at });
     }
     try { await fetch(`${baseUrl}chat/encrypted/${thread}`, { method: 'POST', headers: authHeaders.json(), body: JSON.stringify({ items: payload }) }); } catch {}
@@ -114,11 +117,12 @@ export default function ChatModal({ profileId, onClose }: ChatModalProps) {
         const rows = (hist.messages || []) as any[];
         const mapped: Message[] = [];
         for (const m of rows) {
-          let text = m.content || '';
-          if (!text && (m.content_enc && m.content_nonce)) {
+          let text = '';
+          if (m.content_enc && m.content_nonce) {
             const dec = await decryptWithProfile(m.content_enc, m.content_nonce);
             text = dec || '';
           }
+          if (!text) text = m.content || '';
           mapped.push({ id: m.id, role: m.role, content: text, created_at: m.created_at });
         }
         setMessages(mapped);
@@ -135,20 +139,27 @@ export default function ChatModal({ profileId, onClose }: ChatModalProps) {
   }, [messages, sending]);
 
   async function send() {
-    if (!input.trim() || !threadId) return;
+    if (sending || !input.trim() || !threadId) return;
     const content = input.trim();
     setInput('');
 
     // Optimistically render user's message immediately
     const tempId = `tmp_${Date.now()}`;
-    const optimistic: Message = { id: tempId, role: 'user', content, created_at: new Date().toISOString() };
+    const optimisticPayload = { text: content, images: imageDataUrls };
+    const optimistic: Message = { id: tempId, role: 'user', content: JSON.stringify(optimisticPayload), created_at: new Date().toISOString() };
     setMessages(prev => [...prev, optimistic]);
     setSending(true);
     try {
+      // Build small thumbnails to include in request for server-side plaintext fallback
+      const thumbsForRequest: string[] = [];
+      for (const url of imageDataUrls) {
+        const t = await createThumbnail(url);
+        if (t) thumbsForRequest.push(t);
+      }
       const resp = await fetch(`${baseUrl}chat/message/${threadId}`, {
         method: 'POST',
         headers: authHeaders.json(),
-        body: JSON.stringify({ profileId, content })
+        body: JSON.stringify({ profileId, content, images: imageDataUrls, thumbs: thumbsForRequest })
       });
       const data = await resp.json();
       if (!resp.ok) throw new Error(data?.error || 'Send failed');
@@ -162,16 +173,82 @@ export default function ChatModal({ profileId, onClose }: ChatModalProps) {
         return next;
       });
       // Save encrypted copies
+      // Persist text plus tiny thumbnails so images re-render when reopening the chat
+      const thumbs: string[] = [];
+      for (const url of imageDataUrls) {
+        const t = await createThumbnail(url);
+        if (t) thumbs.push(t);
+      }
+      const userEncrypted = serverUser ? { ...serverUser, content: { text: content, images: thumbs } } : { id: tempId, role: 'user', content: { text: content, images: thumbs }, created_at: new Date().toISOString() };
       await saveEncryptedBatch(threadId, [
-        serverUser ? serverUser : { id: tempId, role: 'user', content, created_at: new Date().toISOString() },
+        userEncrypted as any,
         ...(serverAssistant ? [serverAssistant] : [])
       ] as any);
+      // Clear selected images after successful send
+      setImageDataUrls([]);
     } catch (e) {
       // Revert optimistic user message on failure
       setMessages(prev => prev.filter(m => m.id !== tempId));
       alert((e as Error).message);
     } finally {
       setSending(false);
+    }
+  }
+
+  async function handleImagesSelected(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    const arr: string[] = [...imageDataUrls];
+    const max = 6; // allow up to 6 thumbnails
+    const take = Math.min(files.length, Math.max(0, max - arr.length));
+    for (let i = 0; i < take; i++) {
+      const f = files[i];
+      if (!f.type.startsWith('image/')) continue;
+      const url = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(new Error('Failed to read image'));
+        reader.readAsDataURL(f);
+      });
+      arr.push(url);
+    }
+    setImageDataUrls(arr);
+  }
+
+  function triggerFilePicker() {
+    try { fileInputRef.current?.click(); } catch {}
+  }
+
+  async function createThumbnail(dataUrl: string, maxW = 200, maxH = 200): Promise<string> {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        let { width, height } = img as any;
+        const ratio = Math.min(maxW / width, maxH / height, 1);
+        const w = Math.max(1, Math.floor(width * ratio));
+        const h = Math.max(1, Math.floor(height * ratio));
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        if (ctx) ctx.drawImage(img, 0, 0, w, h);
+        // Use JPEG for better compression; fall back to PNG if data URL already png
+        const isPng = dataUrl.startsWith('data:image/png');
+        const out = isPng ? canvas.toDataURL('image/png') : canvas.toDataURL('image/jpeg', 0.72);
+        resolve(out);
+      };
+      img.onerror = () => resolve('');
+      img.src = dataUrl;
+    });
+  }
+
+  function parseContent(raw: string): { text: string; images: string[] } {
+    try {
+      const obj = JSON.parse(raw);
+      const text = (obj && typeof obj.text === 'string') ? obj.text : (typeof obj === 'string' ? obj : '');
+      const images = Array.isArray(obj?.images) ? obj.images.filter((u: any) => typeof u === 'string' && u.trim()) : [];
+      if (images.length || (obj && typeof obj.text === 'string')) return { text, images };
+      return { text: raw, images: [] };
+    } catch {
+      return { text: raw, images: [] };
     }
   }
 
@@ -183,9 +260,11 @@ export default function ChatModal({ profileId, onClose }: ChatModalProps) {
           <button className="button button-close" onClick={onClose} aria-label="Close chat">×</button>
         </div>
         <div style={{ flex: 1, overflow: 'auto', padding: 16, background: '#0f172a0d', borderRadius: 12 }}>
-          {messages.map(m => (
+          {messages.map(m => {
+            const parsed = parseContent(m.content || '');
+            return (
             <div key={m.id} style={{ marginBottom: 10, display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
-              <div style={{ maxWidth: '75%', padding: '8px 12px', borderRadius: 8, background: m.role === 'user' ? '#2563eb' : '#1f2937', color: '#fff', whiteSpace: 'pre-wrap' }}>
+              <div style={{ maxWidth: '75%', padding: '8px 12px', borderRadius: 12, background: m.role === 'user' ? '#2563eb' : '#1f2937', color: '#fff' }}>
                 {editingId === m.id ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'stretch', width: '100%' }}>
                     <textarea
@@ -216,11 +295,12 @@ export default function ChatModal({ profileId, onClose }: ChatModalProps) {
                           const raw = (data.messages || []) as any[];
                           const display: Message[] = [];
                           for (const row of raw) {
-                            let text = row.content || '';
-                            if (!text && (row.content_enc && row.content_nonce)) {
+                            let text = '';
+                            if (row.content_enc && row.content_nonce) {
                               const dec = await decryptWithProfile(row.content_enc, row.content_nonce);
                               text = dec || '';
                             }
+                            if (!text) text = row.content || '';
                             // Fallback to previously rendered content for legacy rows without data
                             if (!text) {
                               const prev = messages.find((p) => p.id === row.id);
@@ -262,11 +342,12 @@ export default function ChatModal({ profileId, onClose }: ChatModalProps) {
                         const raw = (data.messages || []) as any[];
                         const display: Message[] = [];
                         for (const row of raw) {
-                          let text = row.content || '';
-                          if (!text && (row.content_enc && row.content_nonce)) {
+                          let text = '';
+                          if (row.content_enc && row.content_nonce) {
                             const dec = await decryptWithProfile(row.content_enc, row.content_nonce);
                             text = dec || '';
                           }
+                          if (!text) text = row.content || '';
                           if (!text) {
                             const prev = messages.find((p) => p.id === row.id);
                             if (prev?.content) text = prev.content;
@@ -290,9 +371,20 @@ export default function ChatModal({ profileId, onClose }: ChatModalProps) {
                     </div>
                   </div>
                 ) : (
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <span>{m.content}</span>
-                    {m.role === 'user' && !String(m.id).startsWith('tmp_') && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {parsed.images && parsed.images.length > 0 && (
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 8 }}>
+                        {parsed.images.map((url, idx) => (
+                          <div key={`${m.id}_img_${idx}`} style={{ position: 'relative', borderRadius: 8, overflow: 'hidden', background: '#0b1020' }}>
+                            <img src={url} alt="attachment" style={{ width: '100%', height: '120px', objectFit: 'cover', display: 'block' }} />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {parsed.text && (
+                      <span style={{ whiteSpace: 'pre-wrap' }}>{parsed.text}</span>
+                    )}
+                    {m.role === 'user' && !String(m.id).startsWith('tmp_') && (parsed.images?.length ? false : true) && (
                       <button
                         className="button button-outline"
                         onClick={() => { setEditingId(m.id); setEditText(m.content); }}
@@ -305,7 +397,7 @@ export default function ChatModal({ profileId, onClose }: ChatModalProps) {
                 )}
               </div>
             </div>
-          ))}
+          );})}
           {sending && (
             <div style={{ marginBottom: 10, display: 'flex', justifyContent: 'flex-start' }}>
               <div style={{ maxWidth: '75%', padding: '8px 12px', borderRadius: 8, background: '#1f2937', color: '#fff', display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -316,18 +408,53 @@ export default function ChatModal({ profileId, onClose }: ChatModalProps) {
           )}
           <div ref={bottomRef} />
         </div>
-        <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-          <textarea
-            className="input"
-            placeholder="Type your message... (Shift+Enter for newline)"
-            style={{ width: '100%', minHeight: 60, resize: 'vertical', lineHeight: 1.4 }}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
-          />
-          <button className="button" style={{ minWidth: 90 }} disabled={!threadId || sending || !input.trim()} onClick={send}>
-            {sending ? 'Sending...' : 'Send'}
-          </button>
+        <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'center' }}>
+          <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 8, background: '#fff', borderRadius: 24, padding: '6px 8px', paddingTop: imageDataUrls.length > 0 ? 42 : 6, flex: 1, border: '1px solid #e5e7eb' }}>
+            {/* thumbnails row */}
+            {imageDataUrls.length > 0 && (
+              <div style={{ position: 'absolute', top: 6, left: 54, right: 54, display: 'flex', gap: 6, alignItems: 'center' }}>
+                {imageDataUrls.map((url, idx) => (
+                  <div key={`thumb_${idx}`} style={{ position: 'relative', width: 28, height: 28, borderRadius: 6, overflow: 'hidden', border: '1px solid #e5e7eb', background: '#f8fafc' }}>
+                    <img src={url} alt={`thumb_${idx}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                    <button
+                      className="button button-outline"
+                      title="Remove"
+                      onClick={() => setImageDataUrls(prev => prev.filter((_, i) => i !== idx))}
+                      style={{ position: 'absolute', top: -6, right: -6, width: 16, height: 16, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    >
+                      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <button
+              className="button button-outline"
+              title="Attach image(s)"
+              onClick={triggerFilePicker}
+              aria-label="Attach image"
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 36, height: 36, borderRadius: 18, padding: 0, background: 'transparent', border: 'none', color: '#6b7280' }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 2H5a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V7.5"/><path d="M14 2v6h6"/><path d="M10 20l-3.5-4.5L4 18"/><path d="M20 20l-6-8-4.5 6"/></svg>
+            </button>
+            <textarea
+              className="input"
+              placeholder="Type your message... (Shift+Enter for newline)"
+              style={{ width: '100%', minHeight: 40, resize: 'vertical', lineHeight: 1.4, background: 'transparent', border: 'none', color: '#111' }}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!sending) send(); } }}
+            />
+            <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={(e) => handleImagesSelected(e.target.files)} style={{ display: 'none' }} />
+            {/* inline send/stop icon */}
+            <button className="button" title={sending ? 'Stop' : 'Send'} disabled={!threadId || sending || !input.trim()} onClick={send} style={{ width: 36, height: 36, borderRadius: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, background: 'transparent', border: 'none', color: '#6b7280' }}>
+              {sending ? (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="6" y="6" width="12" height="12"/></svg>
+              ) : (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 2L11 13"/><path d="M22 2L15 22 11 13 2 9 22 2"/></svg>
+              )}
+            </button>
+          </div>
         </div>
       </div>
     </div>,
